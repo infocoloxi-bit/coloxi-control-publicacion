@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "application_sha": "0d2433ac749f48fd1f7f0041038f159241e3baaa",
+  "approved_main_sha": "31b0088d3ad9017c743ee05029202d02a175c442",
+  "producer_sha": "90b78c9d65d46e2939830009bd7cea3aa2ce587e",
+  "build_run_id": 42284676332,
+  "build_event": "push",
+  "ci_run_id": 42287930021,
+  "artifact_id": 13536413222,
+  "artifact_name": "coloxi-web-aprobada-0d2433a",
+  "artifact_digest": "30428e3330db94f022cdd9ae83756436564c2838cd81dc73b2a369da6f1e697d",
+  "archive": "coloxi-web-0d2433a.tar.gz",
+  "archive_sha256": "30375172ad9bd9db7376925b5592e9412760fcc3001bf68aed11fbea002ca46a",
+  "expected_deployment": "881373ae-e632-4c69-bc40-8ba389866617",
+  "rollback_version": "dc784dc7-fe68-4e15-acde-eb254c90c5d8",
+  "bootstrap_evidence": true
+}

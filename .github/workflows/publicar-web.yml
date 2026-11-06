@@ -1,0 +1,65 @@
+name: Publicacion web controlada
+on:
+  workflow_dispatch:
+    inputs:
+      operacion:
+        type: choice
+        options: [verify, publish, rollback]
+        default: verify
+        required: true
+      confirmar:
+        description: Confirmo la publicacion o retorno del candidato aprobado
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: production-web
+  cancel-in-progress: false
+jobs:
+  web:
+    if: github.ref == 'refs/heads/main' && (inputs.operacion == 'verify' || inputs.confirmar)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: web-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verificar origen privado y cuatro trabajos CI
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          SOURCE_READER_TOKEN: ${{ secrets.SOURCE_READER_TOKEN }}
+        run: node scripts/source.mjs verify
+      - name: Conciliar el estado actual sin escrituras
+        id: preflight
+        env:
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
+          PUBLIC_ORIGINS: ${{ vars.PUBLIC_ORIGINS }}
+          CF_WORKER_PUBLISH_TOKEN: ${{ secrets.CF_WORKER_PUBLISH_TOKEN }}
+          OPERATION: ${{ inputs.operacion }}
+        run: node scripts/cloudflare.mjs preflight
+      - name: Descargar artefacto privado sin ejecutar su codigo
+        if: steps.preflight.outputs.action == 'publish'
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          SOURCE_READER_TOKEN: ${{ secrets.SOURCE_READER_TOKEN }}
+        run: |
+          node scripts/source.mjs download
+          python scripts/extract.py
+      - name: Publicar o retornar una sola vez
+        if: inputs.operacion != 'verify'
+        env:
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
+          PUBLIC_ORIGINS: ${{ vars.PUBLIC_ORIGINS }}
+          CF_WORKER_PUBLISH_TOKEN: ${{ secrets.CF_WORKER_PUBLISH_TOKEN }}
+          OPERATION: ${{ inputs.operacion }}
+        run: node scripts/cloudflare.mjs execute

@@ -1,0 +1,13 @@
+{
+  "name": "controlled-worker-publication",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check-public.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.156.2",
+    "yaml": "2.8.2"
+  }
+}
