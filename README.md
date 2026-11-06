@@ -23,6 +23,10 @@ cannot authorize another source. Future manifests require producer/application/m
 SHAs to coincide and a manual build. Never reuse expired artifacts or silently change
 the approved manifest during a publication.
 
+The approved source main must remain in the current main's ancestry. Later changes
+to another component do not require rebuilding this already approved web artifact.
+Rewritten/diverged history is rejected; this does not authorize any newer artifact.
+
 ## Operators: Codex and Antigravity
 
 Both use their own working branch in the source repository. After review/CI and the

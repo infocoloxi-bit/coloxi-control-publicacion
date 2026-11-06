@@ -29,10 +29,14 @@ export function validateRelease(r) {
   return r;
 }
 export function loadRelease() {return validateRelease(JSON.parse(readFileSync('releases/web.json','utf8')));}
-export function validateProvenance(r, {repo, main, build, ci, jobs, artifact}) {
+export function validateProvenance(r, {repo, main, ancestry, build, ci, jobs, artifact}) {
   requireThat(repo.private === true, 'SOURCE_MUST_REMAIN_PRIVATE');
-  requireThat(main.object?.sha === r.approved_main_sha, 'SOURCE_MAIN_CHANGED');
+  requireThat(main.object?.sha === r.approved_main_sha ||
+    (SHA.test(main.object?.sha || '') && ancestry?.status === 'ahead' &&
+     ancestry.base_commit?.sha === r.approved_main_sha && ancestry.merge_base_commit?.sha === r.approved_main_sha &&
+     ancestry.url?.endsWith('/compare/'+r.approved_main_sha+'...'+main.object.sha)), 'APPROVED_SOURCE_NOT_IN_MAIN');
   requireThat(build.head_sha === r.producer_sha && build.status === 'completed' && build.conclusion === 'success' && build.run_attempt === 1 && build.event === r.build_event && build.path === '.github/workflows/preparar-web-aprobada.yml', 'BUILD_NOT_APPROVED');
+  if (!r.bootstrap_evidence) requireThat(build.head_branch === 'main', 'BUILD_NOT_FROM_MAIN');
   requireThat(ci.head_sha === r.approved_main_sha && ci.status === 'completed' && ci.conclusion === 'success' && ci.name === 'verificar', 'CI_NOT_APPROVED');
   requireThat(jobs.length === 4 && REQUIRED_JOBS.every(name => jobs.some(j => j.name === name && j.status === 'completed' && j.conclusion === 'success')), 'CI_REQUIRED_JOBS');
   requireThat(artifact.id === r.artifact_id && artifact.name === r.artifact_name && artifact.expired === false && artifact.workflow_run?.id === r.build_run_id && artifact.workflow_run?.head_sha === r.producer_sha && artifact.digest === 'sha256:'+r.artifact_digest && artifact.size_in_bytes > 0 && artifact.size_in_bytes <= 128*1024*1024, 'ARTIFACT_NOT_APPROVED');

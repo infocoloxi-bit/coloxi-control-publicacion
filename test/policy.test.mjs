@@ -4,6 +4,13 @@ import {loadRelease,validateRelease,validateProvenance,validateDeployment,REQUIR
 const r=loadRelease();
 const fixture=()=>({repo:{private:true},main:{object:{sha:r.approved_main_sha}},build:{head_sha:r.producer_sha,status:'completed',conclusion:'success',run_attempt:1,event:r.build_event,path:'.github/workflows/preparar-web-aprobada.yml'},ci:{head_sha:r.approved_main_sha,status:'completed',conclusion:'success',name:'verificar'},jobs:REQUIRED_JOBS.map(name=>({name,status:'completed',conclusion:'success'})),artifact:{id:r.artifact_id,name:r.artifact_name,expired:false,workflow_run:{id:r.build_run_id,head_sha:r.producer_sha},digest:'sha256:'+r.artifact_digest,size_in_bytes:30000000}});
 test('approved release and provenance pass',()=>assert.equal(validateProvenance(r,fixture()),true));
+const descendant=()=>{const f=fixture();f.main.object.sha='a'.repeat(40);f.ancestry={status:'ahead',base_commit:{sha:r.approved_main_sha},merge_base_commit:{sha:r.approved_main_sha},url:'https://api.github.com/repos/example/private/compare/'+r.approved_main_sha+'...'+f.main.object.sha};return f;};
+test('later main does not republish unrelated component changes',()=>assert.equal(validateProvenance(r,descendant()),true));
+for(const [name,mutate] of [
+  ['diverged main',f=>f.ancestry.status='diverged'],
+  ['rewritten history',f=>f.ancestry.merge_base_commit.sha='b'.repeat(40)],
+  ['wrong comparison head',f=>f.ancestry.url=f.ancestry.url.replace(/a{40}$/,'b'.repeat(40))],
+])test('rejects '+name,()=>{const f=descendant();mutate(f);assert.throws(()=>validateProvenance(r,f));});
 for(const [name,mutate] of [
   ['changed main',f=>f.main.object.sha='a'.repeat(40)],
   ['public source',f=>f.repo.private=false],

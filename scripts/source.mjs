@@ -19,7 +19,9 @@ if(process.argv[2] === 'verify') {
     api(''),api('/git/ref/heads/main'),api('/actions/runs/'+release.build_run_id),
     api('/actions/runs/'+release.ci_run_id),api('/actions/runs/'+release.ci_run_id+'/jobs?per_page=100'),api('/actions/artifacts/'+release.artifact_id),
   ]);
-  validateProvenance(release,{repo:repository,main,build,ci,jobs:jobs.jobs,artifact});
+  const ancestry=main.object?.sha === release.approved_main_sha ? undefined :
+    await api('/compare/'+release.approved_main_sha+'...'+main.object.sha+'?per_page=1');
+  validateProvenance(release,{repo:repository,main,ancestry,build,ci,jobs:jobs.jobs,artifact});
   console.log('Approved source, four CI jobs and private artifact provenance verified.');
 } else if(process.argv[2] === 'download') {
   const r=await api('/actions/artifacts/'+release.artifact_id+'/zip',true);
