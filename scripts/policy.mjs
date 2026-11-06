@@ -34,7 +34,7 @@ export function validateProvenance(r, {repo, main, ancestry, build, ci, jobs, ar
   requireThat(main.object?.sha === r.approved_main_sha ||
     (SHA.test(main.object?.sha || '') && ancestry?.status === 'ahead' &&
      ancestry.base_commit?.sha === r.approved_main_sha && ancestry.merge_base_commit?.sha === r.approved_main_sha &&
-     ancestry.head_commit?.sha === main.object.sha), 'APPROVED_SOURCE_NOT_IN_MAIN');
+     ancestry.url?.endsWith('/compare/'+r.approved_main_sha+'...'+main.object.sha)), 'APPROVED_SOURCE_NOT_IN_MAIN');
   requireThat(build.head_sha === r.producer_sha && build.status === 'completed' && build.conclusion === 'success' && build.run_attempt === 1 && build.event === r.build_event && build.path === '.github/workflows/preparar-web-aprobada.yml', 'BUILD_NOT_APPROVED');
   if (!r.bootstrap_evidence) requireThat(build.head_branch === 'main', 'BUILD_NOT_FROM_MAIN');
   requireThat(ci.head_sha === r.approved_main_sha && ci.status === 'completed' && ci.conclusion === 'success' && ci.name === 'verificar', 'CI_NOT_APPROVED');
