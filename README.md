@@ -59,3 +59,5 @@ Private artifacts are downloaded only to the ephemeral runner, never uploaded he
 Only Web is enabled. PWA, Telegram, training and Hostinger are not enabled by this
 controller. They need their own explicitly authorized credentials and publication
 controls. No guardian, emitter or automatic production publication is activated.
+
+Artifact retention is finite: an expired build requires a new reviewed release manifest.
