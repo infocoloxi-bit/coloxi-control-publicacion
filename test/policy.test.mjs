@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadRelease,validateRelease,validateProvenance,validateDeployment,REQUIRED_JOBS} from '../scripts/policy.mjs';
+import {verifyReleasePR} from '../scripts/verify-release-pr.mjs';
 const r=loadRelease();
 const fixture=()=>({repo:{private:true},main:{object:{sha:r.approved_main_sha}},build:{head_branch:'main',head_sha:r.producer_sha,status:'completed',conclusion:'success',run_attempt:1,event:r.build_event,path:'.github/workflows/preparar-web-aprobada.yml'},ci:{head_sha:r.approved_main_sha,status:'completed',conclusion:'success',name:'verificar'},jobs:REQUIRED_JOBS.map(name=>({name,status:'completed',conclusion:'success'})),artifact:{id:r.artifact_id,name:r.artifact_name,expired:false,workflow_run:{id:r.build_run_id,head_sha:r.producer_sha},digest:'sha256:'+r.artifact_digest,size_in_bytes:30000000}});
 test('approved release and provenance pass',()=>assert.equal(validateProvenance(r,fixture()),true));
@@ -37,3 +38,69 @@ test('publish rejects concurrent external change',()=>assert.throws(()=>validate
 test('split traffic is an uncertain state',()=>assert.throws(()=>validateDeployment({...deployment,versions:[{version_id:versionId,percentage:50}]},version,r,'publish')));
 test('rollback only from this approved application',()=>assert.equal(validateDeployment(deployment,version,r,'rollback'),'rollback'));
 test('rollback from unknown application rejected',()=>assert.throws(()=>validateDeployment(deployment,{...version,annotations:{}},r,'rollback')));
+
+// Tests de protección contra push directo a main sin aprobación de CODEOWNERS
+const testCommit = '0bc947d14c1e7a557ae419ce3a1c6683e66ef2ac';
+test('verifyReleasePR passes for valid merged PR with codeowner approval', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/pulls?')) {
+      return { ok: true, json: async () => [{ number: 99, merged_at: '2026-11-06T00:00:00Z', merge_commit_sha: testCommit }] };
+    }
+    if (url.includes('/pulls/99/reviews')) {
+      return { ok: true, json: async () => [{ state: 'APPROVED', user: { login: 'infocoloxi-bit' } }] };
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const res = await verifyReleasePR({ commitSha: testCommit, fetchFn: mockFetch });
+  assert.equal(res.pr, 99);
+});
+
+test('verifyReleasePR rejects direct push without merged PR', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/pulls?')) {
+      return { ok: true, json: async () => [] };
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  await assert.rejects(
+    () => verifyReleasePR({ commitSha: testCommit, fetchFn: mockFetch }),
+    { message: 'DIRECT_PUSH_DETECTED_NO_MERGED_PR' }
+  );
+});
+
+test('verifyReleasePR rejects PR missing codeowner approval', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/pulls?')) {
+      return { ok: true, json: async () => [{ number: 99, merged_at: '2026-11-06T00:00:00Z', merge_commit_sha: testCommit }] };
+    }
+    if (url.includes('/pulls/99/reviews')) {
+      return { ok: true, json: async () => [{ state: 'COMMENTED', user: { login: 'infocoloxi-bit' } }] };
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  await assert.rejects(
+    () => verifyReleasePR({ commitSha: testCommit, fetchFn: mockFetch }),
+    { message: 'PR_MISSING_CODEOWNER_APPROVAL' }
+  );
+});
+
+test('verifyReleasePR rejects PR approved by non-codeowner', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/pulls?')) {
+      return { ok: true, json: async () => [{ number: 99, merged_at: '2026-11-06T00:00:00Z', merge_commit_sha: testCommit }] };
+    }
+    if (url.includes('/pulls/99/reviews')) {
+      return { ok: true, json: async () => [{ state: 'APPROVED', user: { login: 'unauthorized-user' } }] };
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  await assert.rejects(
+    () => verifyReleasePR({ commitSha: testCommit, fetchFn: mockFetch }),
+    { message: 'PR_MISSING_CODEOWNER_APPROVAL' }
+  );
+});
+
+test('verifyReleasePR passes bootstrap release with bootstrap evidence', async () => {
+  const res = await verifyReleasePR({ release: { bootstrap_evidence: true } });
+  assert.equal(res, true);
+});
