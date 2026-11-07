@@ -11,7 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
       - run: node --input-type=module -e "import {loadRelease} from './scripts/policy.mjs'; loadRelease()"
+      - name: Verificar aprobacion de release por CODEOWNERS en main
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-release-pr.mjs
   tests:
     name: Controller tests
     runs-on: ubuntu-latest

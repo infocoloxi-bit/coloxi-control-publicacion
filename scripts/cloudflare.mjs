@@ -18,7 +18,8 @@ function report(result,d){const text=`${result}; application ${release.applicati
 const before=await current();
 const action=validateDeployment(before.deployment,before.version,release,operation);
 if(process.argv[2]==='preflight') {
-  if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,'action='+action+'\n');
+  const tag=before.version.annotations?.['workers/tag'];
+  if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,'action='+action+'\n'+(/^[a-f0-9]{40}$/.test(tag||'')?'production_sha='+tag+'\n':''));
   report(action==='current'?'ALREADY_CURRENT_NO_WRITE':'PREFLIGHT_'+action.toUpperCase(),before.deployment);
 } else if(process.argv[2]==='execute') {
   if(action==='current') {report('ALREADY_CURRENT_NO_WRITE',before.deployment);}
