@@ -21,16 +21,8 @@ if(op === 'discover') {
   const build=selectAutoBuild(runs.workflow_runs);
   requireThat(build, 'NO_APPROVED_BUILD');
   // Verify that the candidate entered the private main branch via an authorized merged Pull Request (no direct push).
-  let sourcePR;
-  try {
-    const pulls=await api('/commits/'+build.head_sha+'/pulls');
-    sourcePR=validateSourcePR(build.head_sha, pulls);
-  } catch(err) {
-    if(err.message === 'GITHUB_HTTP_403' || err.message === 'GITHUB_HTTP_404') {
-      const commitData=await api('/commits/'+build.head_sha);
-      sourcePR=validateSourcePR(build.head_sha, commitData);
-    } else throw err;
-  }
+  const pulls=await api('/commits/'+build.head_sha+'/pulls');
+  const sourcePR=validateSourcePR(build.head_sha, pulls);
   const cis=await api('/actions/workflows/verificar.yml/runs?branch=main&event=push&status=success&per_page=10&head_sha='+build.head_sha);
   const ci=(cis.workflow_runs||[]).find(c=>c.head_sha===build.head_sha && c.run_attempt>=1);
   const arts=await api('/actions/runs/'+build.id+'/artifacts?per_page=10');

@@ -69,16 +69,9 @@ test('source PR: PR de main con SHA no coincidente queda bloqueado', () => {
   assert.throws(() => validateSourcePR(S, prs), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
 });
 
-test('source PR: commit con firma de PR es admitido via contents fallback', () => {
-  const c = { sha: S, commit: { message: 'fix(web): release (#116)' }, parents: [{ sha: PROD }] };
-  const res = validateSourcePR(S, c);
-  assert.equal(res.pr, 116);
-  assert.equal(res.commit, S);
-});
-
-test('source PR: commit directo sin firma de PR queda bloqueado via contents fallback', () => {
-  const c = { sha: S, commit: { message: 'push directo sin pr' }, parents: [{ sha: PROD }] };
-  assert.throws(() => validateSourcePR(S, c), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+test('source PR: entrada invalida o no array queda bloqueada', () => {
+  assert.throws(() => validateSourcePR(S, null), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+  assert.throws(() => validateSourcePR(S, {}), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
 });
 
 
