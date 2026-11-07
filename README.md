@@ -60,6 +60,4 @@ or workflows with deployment credentials. It generates its own Wrangler configur
 preserves existing variables/secrets, and does not modify routes, DNS, D1 or other Workers.
 Private artifacts are downloaded only to the ephemeral runner, never uploaded here.
 
-Only Web is enabled. PWA, Telegram, training and Hostinger are not enabled by this
-controller. They need their own explicitly authorized credentials and publication
-controls. No guardian, emitter or automatic production publication is activated.
+Only Web (`publicar-web.yml`, environment `web-production`) and commercial PWA (`publicar-pwa.yml`, environment `pwa-production` with `CF_PAGES_PUBLISH_TOKEN` for Cloudflare Pages project `coloxi-app` / `app.coloxi.net`) are enabled. Telegram, training and Hostinger are not enabled by this controller.

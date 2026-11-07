@@ -69,4 +69,57 @@ test('source PR: PR de main con SHA no coincidente queda bloqueado', () => {
   assert.throws(() => validateSourcePR(S, prs), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
 });
 
+test('source PR: entrada invalida o no array queda bloqueada', () => {
+  assert.throws(() => validateSourcePR(S, null), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+  assert.throws(() => validateSourcePR(S, {}), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+});
+
+import {selectAutoPwaCi, buildAutoPwaRelease, validatePwaForward, sealKeypair, sealArtifact, unsealArtifact, PWA_ARTIFACT_PREFIX} from '../scripts/pwa.mjs';
+
+test('pwa auto: selects newest push verificar CI on main and builds valid release', () => {
+  const runs = [
+    { ...ci(), run_attempt: 2 },
+    { ...ci(), head_branch: 'feature' },
+    { ...ci(), event: 'pull_request' },
+    { ...ci(), id: 555 },
+  ];
+  const selected = selectAutoPwaCi(runs);
+  assert.equal(selected.id, 555);
+  const pwaArt = { id: 777, name: PWA_ARTIFACT_PREFIX + S, expired: false, digest: 'sha256:' + D, workflow_run: { id: 555, head_sha: S }, size_in_bytes: 2048 };
+  const jobs = REQUIRED_JOBS.map(name => ({ name, status: 'completed', conclusion: 'success' }));
+  const pulls = [{ number: 120, merged_at: '2026-11-07T04:00:00Z', merge_commit_sha: S, base: { ref: 'main' } }];
+  const rel = buildAutoPwaRelease({ repo: { private: true }, ci: selected, jobs, artifact: pwaArt, pulls });
+  assert.equal(rel.application_sha, S);
+  assert.equal(rel.artifact_id, 777);
+  assert.equal(rel.artifact_digest, D);
+  assert.equal(rel.pr, 120);
+});
+
+test('pwa auto: rejects tampered or mismatched artifact', () => {
+  const pwaArt = { id: 777, name: PWA_ARTIFACT_PREFIX + S, expired: false, digest: 'sha256:' + D, workflow_run: { id: 202, head_sha: S }, size_in_bytes: 2048 };
+  const jobs = REQUIRED_JOBS.map(name => ({ name, status: 'completed', conclusion: 'success' }));
+  const pulls = [{ number: 120, merged_at: '2026-11-07T04:00:00Z', merge_commit_sha: S, base: { ref: 'main' } }];
+  const base = { repo: { private: true }, ci: ci(), jobs, artifact: pwaArt, pulls };
+  assert.throws(() => buildAutoPwaRelease({ ...base, repo: { private: false } }), /SOURCE_MUST_REMAIN_PRIVATE/);
+  assert.throws(() => buildAutoPwaRelease({ ...base, pulls: [] }), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+  assert.throws(() => buildAutoPwaRelease({ ...base, artifact: { ...pwaArt, expired: true } }), /AUTO_PWA_ARTIFACT_MISSING/);
+  assert.throws(() => buildAutoPwaRelease({ ...base, artifact: { ...pwaArt, name: 'web-approved-' + S } }), /AUTO_PWA_ARTIFACT_MISSING/);
+  assert.throws(() => buildAutoPwaRelease({ ...base, artifact: { ...pwaArt, workflow_run: { id: 999, head_sha: S } } }), /AUTO_PWA_ARTIFACT_MISSING/);
+});
+
+test('pwa cryptographic bridge: seals and unseals artifact, rejects wrong token or context', () => {
+  const token = 'test-cf-pages-token-secret-1234567890';
+  const context = 'run:12345:attempt:1:project:coloxi-app';
+  const aad = `${context}:sha:${S}:digest:${D}`;
+  const kp = sealKeypair(token, context);
+  const payload = Buffer.from('verified-pwa-zip-content');
+  const sealed = sealArtifact(payload, kp.publicKey, aad);
+  const unsealed = unsealArtifact(sealed, kp.sealedPrivateKey, token, context, aad);
+  assert.deepEqual(unsealed, payload);
+  assert.throws(() => unsealArtifact(sealed, kp.sealedPrivateKey, 'wrong-token-1234567890', context, aad));
+  assert.throws(() => unsealArtifact(sealed, kp.sealedPrivateKey, token, 'wrong-context', aad));
+  assert.throws(() => unsealArtifact(sealed, kp.sealedPrivateKey, token, context, 'wrong-aad'));
+});
+
+
 
