@@ -1,0 +1,126 @@
+name: Publicacion PWA controlada
+# auto: deriva el candidato PWA exclusivamente de evidencia verificable del main privado
+#       (PR fusionado en main, 4 trabajos CI de verificar.yml aprobados, artefacto pwa-comercial-<sha>
+#       con manifiesto de integridad SHA-256 y BFF precompilado) y publica en Cloudflare Pages
+#       (coloxi-app / app.coloxi.net) sin exponer credenciales ni artefactos privados.
+on:
+  workflow_dispatch:
+    inputs:
+      operacion:
+        type: choice
+        options: [auto, verify]
+        default: auto
+        required: true
+  schedule:
+    - cron: '12,27,42,57 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: production-pwa
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.operacion == 'auto' || inputs.operacion == 'verify')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pwa-production
+    outputs:
+      account_id: ${{ steps.preflight.outputs.account_id }}
+      deployment_id: ${{ steps.preflight.outputs.deployment_id }}
+      production_sha: ${{ steps.preflight.outputs.production_sha }}
+      public_key: ${{ steps.preflight.outputs.public_key }}
+      sealed_key: ${{ steps.preflight.outputs.sealed_key }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Acreditar destino Pages y sellar par de claves efimero
+        id: preflight
+        env:
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          CF_PAGES_PUBLISH_TOKEN: ${{ secrets.CF_PAGES_PUBLISH_TOKEN }}
+        run: node scripts/pwa.mjs prepare
+
+  source:
+    if: github.ref == 'refs/heads/main'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: web-production
+    outputs:
+      action: ${{ steps.discover.outputs.action }}
+      application_sha: ${{ steps.discover.outputs.application_sha }}
+      ci_run_id: ${{ steps.discover.outputs.ci_run_id }}
+      ci_attempt: ${{ steps.discover.outputs.ci_attempt }}
+      artifact_digest: ${{ steps.discover.outputs.artifact_digest }}
+      cache_key: ${{ steps.discover.outputs.cache_key }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verificar procedencia privada, descargar y cifrar artefacto PWA
+        id: discover
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          SOURCE_READER_TOKEN: ${{ secrets.SOURCE_READER_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          ACCOUNT_ID: ${{ needs.prepare.outputs.account_id }}
+          DEPLOYMENT_ID: ${{ needs.prepare.outputs.deployment_id }}
+          PRODUCTION_SHA: ${{ needs.prepare.outputs.production_sha }}
+          PUBLIC_KEY: ${{ needs.prepare.outputs.public_key }}
+        run: node scripts/pwa.mjs source
+      - name: Almacenar sobre cifrado efimero para el entorno de Pages
+        if: steps.discover.outputs.action == 'publish' && inputs.operacion != 'verify'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .private/sealed-pwa.bin
+          key: ${{ steps.discover.outputs.cache_key }}
+
+  publish:
+    if: github.ref == 'refs/heads/main' && needs.source.outputs.action == 'publish' && inputs.operacion != 'verify'
+    needs: [prepare, source]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pwa-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Recuperar sobre cifrado efimero
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .private/sealed-pwa.bin
+          key: ${{ needs.source.outputs.cache_key }}
+          fail-on-cache-miss: true
+      - name: Descifrar, validar BFF y publicar en Cloudflare Pages
+        env:
+          CF_PAGES_PUBLISH_TOKEN: ${{ secrets.CF_PAGES_PUBLISH_TOKEN }}
+          CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          PWA_ORIGINS: ${{ vars.PWA_ORIGINS }}
+          ACCOUNT_ID: ${{ needs.prepare.outputs.account_id }}
+          DEPLOYMENT_ID: ${{ needs.prepare.outputs.deployment_id }}
+          SEALED_KEY: ${{ needs.prepare.outputs.sealed_key }}
+          APPLICATION_SHA: ${{ needs.source.outputs.application_sha }}
+          CI_RUN_ID: ${{ needs.source.outputs.ci_run_id }}
+          CI_ATTEMPT: ${{ needs.source.outputs.ci_attempt }}
+          ARTIFACT_DIGEST: ${{ needs.source.outputs.artifact_digest }}
+        run: node scripts/pwa.mjs publish
