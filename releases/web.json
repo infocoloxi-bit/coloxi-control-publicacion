@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "application_sha": "f70004e324f2f513580bdb3e69b3276544078422",
-  "approved_main_sha": "f70004e324f2f513580bdb3e69b3276544078422",
-  "producer_sha": "f70004e324f2f513580bdb3e69b3276544078422",
-  "build_run_id": 42296074403,
+  "application_sha": "16d222b7f0543d6781a44b1681a0dd77a35f5077",
+  "approved_main_sha": "16d222b7f0543d6781a44b1681a0dd77a35f5077",
+  "producer_sha": "16d222b7f0543d6781a44b1681a0dd77a35f5077",
+  "build_run_id": 42316871697,
   "build_event": "workflow_dispatch",
-  "ci_run_id": 42295268135,
-  "artifact_id": 13542745447,
-  "artifact_name": "web-approved-f70004e324f2f513580bdb3e69b3276544078422",
-  "artifact_digest": "7f9f11859e3d40813c9ca7b3f6b4df3772a0997685b31b8256f2d97ff8dafc2c",
+  "ci_run_id": 42316796608,
+  "artifact_id": 13550668778,
+  "artifact_name": "web-approved-16d222b7f0543d6781a44b1681a0dd77a35f5077",
+  "artifact_digest": "83ac8319731b0ed12d4bd737b489ba2c693fe541e434b6ecd3aff0d18ad6fa66",
   "archive": "web-delivery.tar.gz",
-  "archive_sha256": "46cd4c2b8bb529a52876732224a3abb4b49c2d29d01d9df8116cc0c77781ffdd",
-  "expected_deployment": "881373ae-e632-4c69-bc40-8ba389866617",
-  "rollback_version": "dc784dc7-fe68-4e15-acde-eb254c90c5d8"
+  "archive_sha256": "412e5e3501e6d3e666a83211d8af416f78399b781b025bf39b76763caa185555",
+  "expected_deployment": "d4dd76ae-fd7b-43bb-a190-d79afdc7b799",
+  "rollback_version": "881373ae-e632-4c69-bc40-8ba389866617"
 }
