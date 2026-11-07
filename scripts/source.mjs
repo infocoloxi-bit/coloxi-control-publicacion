@@ -1,6 +1,6 @@
-import {writeFileSync, mkdirSync} from 'node:fs';
+import {writeFileSync, mkdirSync, appendFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {loadRelease, requireThat, validateProvenance} from './policy.mjs';
+import {loadRelease, requireThat, validateProvenance, selectAutoBuild, buildAutoRelease, validateForward, SHA} from './policy.mjs';
 
 const repo=process.env.SOURCE_REPOSITORY;
 requireThat(/^[\w.-]+\/[\w.-]+$/.test(repo||''), 'SOURCE_REPOSITORY');
@@ -13,8 +13,23 @@ async function api(path, raw=false) {
   requireThat(r.ok, 'GITHUB_HTTP_'+r.status);
   return r.json();
 }
-const release=loadRelease();
-if(process.argv[2] === 'verify') {
+function output(line){if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,line+'\n');}
+const op=process.argv[2];
+if(op === 'discover') {
+  // Derive the release from evidence only: no human-edited manifest, no workflow input is trusted.
+  const runs=await api('/actions/workflows/preparar-web-aprobada.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=20');
+  const build=selectAutoBuild(runs.workflow_runs);
+  requireThat(build, 'NO_APPROVED_BUILD');
+  const cis=await api('/actions/workflows/verificar.yml/runs?branch=main&event=push&status=success&per_page=10&head_sha='+build.head_sha);
+  const ci=(cis.workflow_runs||[]).find(c=>c.head_sha===build.head_sha && c.run_attempt>=1);
+  const arts=await api('/actions/runs/'+build.id+'/artifacts?per_page=10');
+  const artifact=(arts.artifacts||[]).find(a=>a.name==='web-approved-'+build.head_sha);
+  const release=buildAutoRelease({build,ci,artifact});
+  writeFileSync('releases/web.json',JSON.stringify(release,null,2)+'\n');
+  output('candidate='+release.application_sha);
+  console.log('Automatic candidate '+release.application_sha+' derived from private main evidence.');
+} else if(op === 'verify') {
+  const release=loadRelease();
   const [repository,main,build,ci,jobs,artifact]=await Promise.all([
     api(''),api('/git/ref/heads/main'),api('/actions/runs/'+release.build_run_id),
     api('/actions/runs/'+release.ci_run_id),api('/actions/runs/'+release.ci_run_id+'/jobs?per_page=100'),api('/actions/artifacts/'+release.artifact_id),
@@ -23,7 +38,15 @@ if(process.argv[2] === 'verify') {
     await api('/compare/'+release.approved_main_sha+'...'+main.object.sha+'?per_page=1');
   validateProvenance(release,{repo:repository,main,ancestry,build,ci,jobs:jobs.jobs,artifact});
   console.log('Approved source, four CI jobs and private artifact provenance verified.');
-} else if(process.argv[2] === 'download') {
+} else if(op === 'forward') {
+  const release=loadRelease();
+  const production=process.env.PRODUCTION_SHA;
+  requireThat(release.mode === 'auto' && SHA.test(production||''), 'FORWARD_INPUT');
+  const comparison=await api('/compare/'+production+'...'+release.application_sha+'?per_page=1');
+  validateForward(release,production,comparison);
+  console.log('Candidate is strictly ahead of the version in production; no downgrade.');
+} else if(op === 'download') {
+  const release=loadRelease();
   const r=await api('/actions/artifacts/'+release.artifact_id+'/zip',true);
   requireThat(r.status === 302, 'ARTIFACT_REDIRECT');
   const url=new URL(r.headers.get('location'));

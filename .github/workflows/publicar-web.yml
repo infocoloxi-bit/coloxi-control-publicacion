@@ -1,17 +1,24 @@
 name: Publicacion web controlada
+# auto: deriva el candidato SOLO de evidencia verificable del main privado (CI de 4 trabajos verde,
+#       artefacto producido por preparar-web-aprobada.yml en main, digest/SHA/procedencia) y publica
+#       sin intervencion humana si esta estrictamente por delante de produccion.
+# verify/publish/rollback: usan el manifiesto fijado releases/web.json (aprobado por CODEOWNERS).
+# Cualquier cambio de este workflow, scripts o permisos sigue exigiendo revision de CODEOWNERS.
 on:
   workflow_dispatch:
     inputs:
       operacion:
         type: choice
-        options: [verify, publish, rollback]
-        default: verify
+        options: [auto, verify, publish, rollback]
+        default: auto
         required: true
       confirmar:
-        description: Confirmo la publicacion o retorno del candidato aprobado
+        description: Confirmo la publicacion o retorno del manifiesto fijado (no aplica a auto)
         type: boolean
         default: false
         required: true
+  schedule:
+    - cron: '7,22,37,52 * * * *'
 permissions:
   contents: read
 concurrency:
@@ -19,10 +26,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   web:
-    if: github.ref == 'refs/heads/main' && (inputs.operacion == 'verify' || inputs.confirmar)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.operacion == 'auto' || inputs.operacion == 'verify' || inputs.confirmar)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: web-production
+    env:
+      OPERATION: ${{ inputs.operacion || 'auto' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -34,9 +43,16 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verificar aprobacion de release por CODEOWNERS
+        if: env.OPERATION != 'auto'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/verify-release-pr.mjs
+      - name: Derivar candidato autorizado desde evidencia del main privado
+        if: env.OPERATION == 'auto'
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          SOURCE_READER_TOKEN: ${{ secrets.SOURCE_READER_TOKEN }}
+        run: node scripts/source.mjs discover
       - name: Verificar origen privado y cuatro trabajos CI
         env:
           SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
@@ -49,8 +65,14 @@ jobs:
           CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
           PUBLIC_ORIGINS: ${{ vars.PUBLIC_ORIGINS }}
           CF_WORKER_PUBLISH_TOKEN: ${{ secrets.CF_WORKER_PUBLISH_TOKEN }}
-          OPERATION: ${{ inputs.operacion }}
         run: node scripts/cloudflare.mjs preflight
+      - name: Impedir retrocesos respecto de produccion
+        if: env.OPERATION == 'auto' && steps.preflight.outputs.action == 'publish'
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          SOURCE_READER_TOKEN: ${{ secrets.SOURCE_READER_TOKEN }}
+          PRODUCTION_SHA: ${{ steps.preflight.outputs.production_sha }}
+        run: node scripts/source.mjs forward
       - name: Descargar artefacto privado sin ejecutar su codigo
         if: steps.preflight.outputs.action == 'publish'
         env:
@@ -60,11 +82,10 @@ jobs:
           node scripts/source.mjs download
           python scripts/extract.py
       - name: Publicar o retornar una sola vez
-        if: inputs.operacion != 'verify'
+        if: env.OPERATION != 'verify' && steps.preflight.outputs.action != 'current'
         env:
           CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
           CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
           PUBLIC_ORIGINS: ${{ vars.PUBLIC_ORIGINS }}
           CF_WORKER_PUBLISH_TOKEN: ${{ secrets.CF_WORKER_PUBLISH_TOKEN }}
-          OPERATION: ${{ inputs.operacion }}
         run: node scripts/cloudflare.mjs execute

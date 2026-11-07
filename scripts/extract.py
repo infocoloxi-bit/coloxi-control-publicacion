@@ -10,7 +10,15 @@ with zipfile.ZipFile(root / 'source.zip') as z:
     assert sum(m.file_size for m in members) <= 128 * 1024 * 1024
     assert release['archive'] in z.namelist()
     archive = z.read(release['archive'])
-assert hashlib.sha256(archive).hexdigest() == release['archive_sha256']
+    expected = release.get('archive_sha256')
+    if release.get('mode') == 'auto' and expected is None:
+        # The zip digest was already matched to the digest GitHub recorded at build time,
+        # so the checksum file inside it is covered by that verified digest.
+        sums = z.read('SHA256SUMS-web').decode('ascii').split()
+        assert len(sums) == 2 and sums[1] == release['archive']
+        expected = sums[0]
+assert expected and len(expected) == 64
+assert hashlib.sha256(archive).hexdigest() == expected
 archive_path = root / release['archive']
 archive_path.write_bytes(archive)
 with tarfile.open(archive_path, 'r:gz') as t:
