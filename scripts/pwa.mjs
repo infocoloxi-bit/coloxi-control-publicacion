@@ -374,29 +374,34 @@ async function main() {
   if (op === 'prepare') {
     const token = process.env.CF_PAGES_PUBLISH_TOKEN;
     requireThat(token, 'CF_PAGES_TOKEN_MISSING');
-    const account = await resolveCfAccount(token, process.env.CF_ACCOUNT_ID, project);
-    const current = await getVerifiedPagesProject(token, account, project);
-    const context = `${runId}:${runAttempt}:${account}:${project}`;
+    const context = `${runId}:${runAttempt}:${project}`;
     const {publicKey, sealedPrivateKey} = sealKeypair(token, context);
-    output('account_id=' + account);
-    output('deployment_id=' + current.deployment.id);
-    output('production_sha=' + current.sha);
     output('public_key=' + publicKey);
     output('sealed_key=' + sealedPrivateKey);
-    console.log(`PREFLIGHT_PWA; current_application ${current.sha}; deployment ${current.deployment.id}`);
+    try {
+      const account = await resolveCfAccount(token, process.env.CF_ACCOUNT_ID, project);
+      const current = await getVerifiedPagesProject(token, account, project);
+      output('account_id=' + account);
+      output('deployment_id=' + current.deployment.id);
+      output('production_sha=' + current.sha);
+      console.log(`PREFLIGHT_PWA; current_application ${current.sha}; deployment ${current.deployment.id}`);
+    } catch {
+      console.log('PREFLIGHT_PWA; keypair sealed; Cloudflare project check deferred to publish with CF_ACCOUNT_ID from web-production.');
+    }
   } else if (op === 'source') {
     const repoName = process.env.SOURCE_REPOSITORY;
     requireThat(/^[\w.-]+\/[\w.-]+$/.test(repoName || ''), 'SOURCE_REPOSITORY');
     const token = process.env.SOURCE_READER_TOKEN;
     requireThat(token, 'SOURCE_READER_MISSING');
     const publicKey = process.env.PUBLIC_KEY;
-    const productionSha = process.env.PRODUCTION_SHA;
-    const deploymentId = process.env.DEPLOYMENT_ID;
-    const accountId = process.env.ACCOUNT_ID;
-    requireThat(publicKey && SHORT_OR_FULL_SHA.test(productionSha || '') && UUID.test(deploymentId || '') && /^[a-f0-9]{32}$/.test(accountId || ''), 'SOURCE_INPUT_INVALID');
-    if (process.env.CF_ACCOUNT_ID) {
-      requireThat(process.env.CF_ACCOUNT_ID === accountId, 'CF_ACCOUNT_MISMATCH');
+    const productionSha = process.env.PRODUCTION_SHA || '';
+    const deploymentId = process.env.DEPLOYMENT_ID || '';
+    const accountId = process.env.CF_ACCOUNT_ID || process.env.ACCOUNT_ID || '';
+    requireThat(publicKey && /^[a-f0-9]{32}$/.test(accountId), 'SOURCE_INPUT_INVALID');
+    if (process.env.CF_ACCOUNT_ID && process.env.ACCOUNT_ID) {
+      requireThat(process.env.CF_ACCOUNT_ID === process.env.ACCOUNT_ID, 'CF_ACCOUNT_MISMATCH');
     }
+    output('account_id=' + accountId);
 
     const [repoInfo, runs] = await Promise.all([
       ghApi(repoName, token, ''),
@@ -405,23 +410,31 @@ async function main() {
     const ci = selectAutoPwaCi(runs.workflow_runs);
     requireThat(ci, 'NO_APPROVED_PWA_CI');
 
-    const [pulls, jobsRes, artsRes] = await Promise.all([
+    const [pulls, jobsRes, artsRes, commitsP1, commitsP2] = await Promise.all([
       ghApi(repoName, token, '/commits/' + ci.head_sha + '/pulls'),
       ghApi(repoName, token, '/actions/runs/' + ci.id + '/jobs?per_page=100'),
       ghApi(repoName, token, '/actions/runs/' + ci.id + '/artifacts?per_page=20'),
+      ghApi(repoName, token, `/commits?sha=${ci.head_sha}&per_page=100&page=1`),
+      ghApi(repoName, token, `/commits?sha=${ci.head_sha}&per_page=100&page=2`),
     ]);
     const artifact = (artsRes.artifacts || []).find(a => a.name === 'pwa-comercial-' + ci.head_sha);
     const release = buildAutoPwaRelease({repo: repoInfo, ci, jobs: jobsRes.jobs, artifact, pulls});
 
-    if (release.application_sha === productionSha || release.application_sha.startsWith(productionSha)) {
-      output('action=current');
-      output('application_sha=' + release.application_sha);
-      report('ALREADY_CURRENT_NO_WRITE', release.application_sha, deploymentId);
-      return;
-    }
+    const ancestorShas = [...(commitsP1 || []), ...(commitsP2 || [])]
+      .map(c => c?.sha)
+      .filter(s => SHA.test(s || '') && s !== release.application_sha);
+    output('ancestor_shas=' + JSON.stringify(ancestorShas));
 
-    const comparison = await ghApi(repoName, token, `/compare/${productionSha}...${release.application_sha}?per_page=1`);
-    validatePwaForward(release.application_sha, productionSha, comparison);
+    if (SHORT_OR_FULL_SHA.test(productionSha) && UUID.test(deploymentId)) {
+      if (release.application_sha === productionSha || release.application_sha.startsWith(productionSha)) {
+        output('action=current');
+        output('application_sha=' + release.application_sha);
+        report('ALREADY_CURRENT_NO_WRITE', release.application_sha, deploymentId);
+        return;
+      }
+      const comparison = await ghApi(repoName, token, `/compare/${productionSha}...${release.application_sha}?per_page=1`);
+      validatePwaForward(release.application_sha, productionSha, comparison);
+    }
 
     const redir = await ghApi(repoName, token, `/actions/artifacts/${release.artifact_id}/zip`, true);
     requireThat(redir.status === 302, 'ARTIFACT_REDIRECT');
@@ -458,21 +471,22 @@ async function main() {
   } else if (op === 'publish') {
     const token = process.env.CF_PAGES_PUBLISH_TOKEN;
     const account = process.env.ACCOUNT_ID;
-    const deploymentId = process.env.DEPLOYMENT_ID;
+    const deploymentId = process.env.DEPLOYMENT_ID || '';
     const sealedKey = process.env.SEALED_KEY;
     const applicationSha = process.env.APPLICATION_SHA;
     const ciRunId = Number(process.env.CI_RUN_ID);
     const ciAttempt = Number(process.env.CI_ATTEMPT || '1');
     const artifactDigest = process.env.ARTIFACT_DIGEST;
+    const ancestorShas = JSON.parse(process.env.ANCESTOR_SHAS || '[]');
     requireThat(
       token &&
         /^[a-f0-9]{32}$/.test(account || '') &&
-        UUID.test(deploymentId || '') &&
         sealedKey &&
         SHA.test(applicationSha || '') &&
         Number.isSafeInteger(ciRunId) &&
         ciRunId > 0 &&
-        HASH.test(artifactDigest || ''),
+        HASH.test(artifactDigest || '') &&
+        Array.isArray(ancestorShas),
       'PUBLISH_INPUT_INVALID',
     );
 
@@ -481,9 +495,15 @@ async function main() {
       report('ALREADY_CURRENT_NO_WRITE', applicationSha, before.deployment.id);
       return;
     }
-    requireThat(before.deployment.id === deploymentId, 'DEPLOYMENT_CHANGED_CONCURRENTLY');
+    if (UUID.test(deploymentId)) {
+      requireThat(before.deployment.id === deploymentId, 'DEPLOYMENT_CHANGED_CONCURRENTLY');
+    }
+    requireThat(
+      ancestorShas.some(s => typeof s === 'string' && (s === before.sha || s.startsWith(before.sha))),
+      'CANDIDATE_NOT_AHEAD_OF_PRODUCTION',
+    );
 
-    const context = `${runId}:${runAttempt}:${account}:${project}`;
+    const context = `${runId}:${runAttempt}:${project}`;
     const aad = `${runId}:${runAttempt}:${applicationSha}:${artifactDigest}`;
     const sealedBuffer = readFileSync('.private/sealed-pwa.bin');
     const zipBuffer = unsealArtifact(sealedBuffer, sealedKey, token, context, aad);

@@ -56,10 +56,12 @@ jobs:
     environment: web-production
     outputs:
       action: ${{ steps.discover.outputs.action }}
+      account_id: ${{ steps.discover.outputs.account_id }}
       application_sha: ${{ steps.discover.outputs.application_sha }}
       ci_run_id: ${{ steps.discover.outputs.ci_run_id }}
       ci_attempt: ${{ steps.discover.outputs.ci_attempt }}
       artifact_digest: ${{ steps.discover.outputs.artifact_digest }}
+      ancestor_shas: ${{ steps.discover.outputs.ancestor_shas }}
       cache_key: ${{ steps.discover.outputs.cache_key }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -116,11 +118,12 @@ jobs:
           CF_PAGES_PUBLISH_TOKEN: ${{ secrets.CF_PAGES_PUBLISH_TOKEN }}
           CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT }}
           PWA_ORIGINS: ${{ vars.PWA_ORIGINS }}
-          ACCOUNT_ID: ${{ needs.prepare.outputs.account_id }}
+          ACCOUNT_ID: ${{ needs.source.outputs.account_id }}
           DEPLOYMENT_ID: ${{ needs.prepare.outputs.deployment_id }}
           SEALED_KEY: ${{ needs.prepare.outputs.sealed_key }}
           APPLICATION_SHA: ${{ needs.source.outputs.application_sha }}
           CI_RUN_ID: ${{ needs.source.outputs.ci_run_id }}
           CI_ATTEMPT: ${{ needs.source.outputs.ci_attempt }}
           ARTIFACT_DIGEST: ${{ needs.source.outputs.artifact_digest }}
+          ANCESTOR_SHAS: ${{ needs.source.outputs.ancestor_shas }}
         run: node scripts/pwa.mjs publish
