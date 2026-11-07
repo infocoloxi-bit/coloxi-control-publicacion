@@ -1,6 +1,6 @@
 import {writeFileSync, mkdirSync, appendFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {loadRelease, requireThat, validateProvenance, selectAutoBuild, buildAutoRelease, validateForward, SHA} from './policy.mjs';
+import {loadRelease, requireThat, validateProvenance, selectAutoBuild, validateSourcePR, buildAutoRelease, validateForward, SHA} from './policy.mjs';
 
 const repo=process.env.SOURCE_REPOSITORY;
 requireThat(/^[\w.-]+\/[\w.-]+$/.test(repo||''), 'SOURCE_REPOSITORY');
@@ -20,6 +20,9 @@ if(op === 'discover') {
   const runs=await api('/actions/workflows/preparar-web-aprobada.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=20');
   const build=selectAutoBuild(runs.workflow_runs);
   requireThat(build, 'NO_APPROVED_BUILD');
+  // Verify that the candidate entered the private main branch via an authorized merged Pull Request (no direct push).
+  const pulls=await api('/commits/'+build.head_sha+'/pulls');
+  const sourcePR=validateSourcePR(build.head_sha, pulls);
   const cis=await api('/actions/workflows/verificar.yml/runs?branch=main&event=push&status=success&per_page=10&head_sha='+build.head_sha);
   const ci=(cis.workflow_runs||[]).find(c=>c.head_sha===build.head_sha && c.run_attempt>=1);
   const arts=await api('/actions/runs/'+build.id+'/artifacts?per_page=10');
@@ -27,7 +30,7 @@ if(op === 'discover') {
   const release=buildAutoRelease({build,ci,artifact});
   writeFileSync('releases/web.json',JSON.stringify(release,null,2)+'\n');
   output('candidate='+release.application_sha);
-  console.log('Automatic candidate '+release.application_sha+' derived from private main evidence.');
+  console.log('Automatic candidate '+release.application_sha+' derived from private main evidence (merged PR #'+sourcePR.pr+').');
 } else if(op === 'verify') {
   const release=loadRelease();
   const [repository,main,build,ci,jobs,artifact]=await Promise.all([

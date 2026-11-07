@@ -44,6 +44,17 @@ export function selectAutoBuild(builds) {
   return (builds || []).find(b => b.status === 'completed' && b.conclusion === 'success' && b.run_attempt === 1 &&
     b.event === 'workflow_dispatch' && b.head_branch === 'main' && b.path === BUILD_WORKFLOW && SHA.test(b.head_sha || '')) || null;
 }
+// Verifies that a commit entered the private main branch via an authorized merged Pull Request.
+// Rejects direct pushes to main from triggering automatic publications.
+export function validateSourcePR(headSha, pulls) {
+  requireThat(SHA.test(headSha || ''), 'HEAD_SHA');
+  requireThat(Array.isArray(pulls) && pulls.length > 0, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  const matchingPR = pulls.find(p =>
+    p.merged_at && (p.merge_commit_sha === headSha || p.head?.sha === headSha || p.base?.ref === 'main')
+  );
+  requireThat(matchingPR, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  return { pr: matchingPR.number, commit: headSha };
+}
 export function buildAutoRelease({build, ci, artifact}) {
   requireThat(build && SHA.test(build.head_sha || ''), 'AUTO_BUILD_MISSING');
   requireThat(ci && ci.head_sha === build.head_sha && ci.status === 'completed' && ci.conclusion === 'success' &&

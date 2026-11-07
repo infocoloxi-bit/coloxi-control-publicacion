@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateRelease,validateProvenance,validateDeployment,validateForward,selectAutoBuild,buildAutoRelease,REQUIRED_JOBS,BUILD_WORKFLOW} from '../scripts/policy.mjs';
+import {validateRelease,validateProvenance,validateDeployment,validateForward,selectAutoBuild,buildAutoRelease,validateSourcePR,REQUIRED_JOBS,BUILD_WORKFLOW} from '../scripts/policy.mjs';
 
 const S='1'.repeat(40), PROD='2'.repeat(40), D='c'.repeat(64);
 const build=()=>({id:101,head_sha:S,head_branch:'main',status:'completed',conclusion:'success',run_attempt:1,event:'workflow_dispatch',path:BUILD_WORKFLOW});
@@ -46,4 +46,17 @@ test('forward: candidate strictly ahead of production passes',()=>assert.equal(v
 for(const [name,mut] of [['downgrade',c=>{c.status='behind';c.ahead_by=0;c.behind_by=2;}],['diverged',c=>{c.status='diverged';c.behind_by=1;}],
   ['identical',c=>{c.status='identical';c.ahead_by=0;}],['other base',c=>c.merge_base_commit.sha='3'.repeat(40)],['other head',c=>c.url=c.url.replace(S,PROD)]])
   test('forward rejects '+name,()=>{const c=cmp();mut(c);assert.throws(()=>validateForward(auto(),PROD,c));});
+
+test('source PR: PR ordinario autorizado puede publicarse', () => {
+  const prs = [{ number: 116, merged_at: '2026-11-07T00:12:24Z', merge_commit_sha: S, base: { ref: 'main' } }];
+  const res = validateSourcePR(S, prs);
+  assert.equal(res.pr, 116);
+  assert.equal(res.commit, S);
+});
+
+test('source PR: push directo sin autorizacion queda bloqueado', () => {
+  assert.throws(() => validateSourcePR(S, []), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+  assert.throws(() => validateSourcePR(S, [{ number: 99, merged_at: null, head: { sha: S } }]), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+});
+
 
