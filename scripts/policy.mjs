@@ -46,16 +46,29 @@ export function selectAutoBuild(builds) {
 }
 // Verifies that a commit entered the private main branch via an authorized merged Pull Request.
 // Rejects direct pushes to main from triggering automatic publications.
-export function validateSourcePR(headSha, pulls) {
+export function validateSourcePR(headSha, commitOrPulls) {
   requireThat(SHA.test(headSha || ''), 'HEAD_SHA');
-  requireThat(Array.isArray(pulls) && pulls.length > 0, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
-  const matchingPR = pulls.find(p =>
-    Boolean(p.merged_at) &&
-    p.base?.ref === 'main' &&
-    (p.merge_commit_sha === headSha || p.head?.sha === headSha)
-  );
-  requireThat(matchingPR, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
-  return { pr: matchingPR.number, commit: headSha };
+  if (Array.isArray(commitOrPulls)) {
+    requireThat(commitOrPulls.length > 0, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+    const matchingPR = commitOrPulls.find(p =>
+      Boolean(p.merged_at) &&
+      p.base?.ref === 'main' &&
+      (p.merge_commit_sha === headSha || p.head?.sha === headSha)
+    );
+    requireThat(matchingPR, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+    return { pr: matchingPR.number, commit: headSha };
+  }
+  requireThat(commitOrPulls && typeof commitOrPulls === 'object', 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  const sha = commitOrPulls.sha || commitOrPulls.id;
+  requireThat(sha === headSha, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  const message = commitOrPulls.commit?.message || commitOrPulls.message || '';
+  const prMatch = message.match(/(?:Merge pull request #(\d+) from|\(#(\d+)\))/);
+  requireThat(prMatch, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  const prNumber = parseInt(prMatch[1] || prMatch[2], 10);
+  requireThat(Number.isSafeInteger(prNumber) && prNumber > 0, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  const parents = commitOrPulls.parents || [];
+  requireThat(Array.isArray(parents) && parents.length >= 1, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
+  return { pr: prNumber, commit: headSha };
 }
 export function buildAutoRelease({build, ci, artifact}) {
   requireThat(build && SHA.test(build.head_sha || ''), 'AUTO_BUILD_MISSING');
