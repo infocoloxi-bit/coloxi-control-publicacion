@@ -59,4 +59,14 @@ test('source PR: push directo sin autorizacion queda bloqueado', () => {
   assert.throws(() => validateSourcePR(S, [{ number: 99, merged_at: null, head: { sha: S } }]), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
 });
 
+test('source PR: PR fusionado hacia otra rama queda bloqueado', () => {
+  const prs = [{ number: 115, merged_at: '2026-11-07T00:00:00Z', merge_commit_sha: S, base: { ref: 'develop' } }];
+  assert.throws(() => validateSourcePR(S, prs), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+});
+
+test('source PR: PR de main con SHA no coincidente queda bloqueado', () => {
+  const prs = [{ number: 114, merged_at: '2026-11-07T00:00:00Z', merge_commit_sha: PROD, head: { sha: PROD }, base: { ref: 'main' } }];
+  assert.throws(() => validateSourcePR(S, prs), /DIRECT_PUSH_DETECTED_NO_MERGED_PR/);
+});
+
 

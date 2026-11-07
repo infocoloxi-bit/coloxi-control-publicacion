@@ -50,7 +50,9 @@ export function validateSourcePR(headSha, pulls) {
   requireThat(SHA.test(headSha || ''), 'HEAD_SHA');
   requireThat(Array.isArray(pulls) && pulls.length > 0, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
   const matchingPR = pulls.find(p =>
-    p.merged_at && (p.merge_commit_sha === headSha || p.head?.sha === headSha || p.base?.ref === 'main')
+    Boolean(p.merged_at) &&
+    p.base?.ref === 'main' &&
+    (p.merge_commit_sha === headSha || p.head?.sha === headSha)
   );
   requireThat(matchingPR, 'DIRECT_PUSH_DETECTED_NO_MERGED_PR');
   return { pr: matchingPR.number, commit: headSha };
